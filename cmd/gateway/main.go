@@ -1,4 +1,4 @@
-// Command gateway is the GOLB API Gateway entry point.
+// Command gateway is the Flux API Gateway entry point.
 //
 // Usage:
 //
@@ -23,7 +23,6 @@ import (
 	"syscall"
 	"time"
 
-	"golb/internal/admin"
 	"golb/internal/config"
 	"golb/internal/health"
 	"golb/internal/middleware"
@@ -75,35 +74,6 @@ func main() {
 		monitor.Start()
 	}
 
-	// ── Admin registry ────────────────────────────────────────────────────────
-	// The registry is the single mutable source of truth for the backend pool.
-	// Both the admin API and the YAML hot-reload path write through it.
-	initialBackends, err := strategy.NewBackends(cfg.Backends)
-	if err != nil {
-		slog.Error("failed to build initial backend list", "error", err)
-		os.Exit(1)
-	}
-
-	reg := admin.NewRegistry(initialBackends, cfg.Strategy, func(strat string, backends []*strategy.Backend) {
-		newPicker, err := strategy.New(strat, backends)
-		if err != nil {
-			slog.Error("admin: failed to rebuild picker", "error", err)
-			return
-		}
-		gw.UpdatePicker(newPicker)
-		monitor.UpdateBackends(backends)
-	})
-
-	// Seed the gateway with the registry-owned backends so the same Backend
-	// objects are used by the proxy, health monitor, and admin server.
-	seedPicker, err := strategy.New(cfg.Strategy, reg.Backends())
-	if err != nil {
-		slog.Error("failed to build initial picker", "error", err)
-		os.Exit(1)
-	}
-	gw.UpdatePicker(seedPicker)
-	monitor.UpdateBackends(reg.Backends())
-
 	// ── Build middleware chain ────────────────────────────────────────────────
 	// The atomicHandler lets us swap the entire chain at runtime (hot-reload
 	// of rate-limit or auth settings) without restarting the server.
@@ -132,10 +102,13 @@ func main() {
 				slog.Error("hot-reload: invalid backends", "error", err)
 				return
 			}
-			// Replace the registry (resets stats; admin sees fresh backends).
-			reg.ReplaceAll(newBackends, newCfg.Strategy)
-			// The registry's onChange already calls gw.UpdatePicker and
-			// monitor.UpdateBackends, so we only need to rebuild the chain.
+			newPicker, err := strategy.New(newCfg.Strategy, newBackends)
+			if err != nil {
+				slog.Error("hot-reload: failed to rebuild picker", "error", err)
+				return
+			}
+			gw.UpdatePicker(newPicker)
+			monitor.UpdateBackends(newBackends)
 			current.Store(buildChain(newCfg))
 
 			slog.Info("hot-reload applied",
@@ -184,13 +157,6 @@ func main() {
 		}
 	}()
 
-	// ── Admin dashboard ────────────────────────────────────────────────────────
-	var adminSrv *admin.Server
-	if cfg.Admin.Enabled {
-		adminSrv = admin.New(reg, cfg.Admin.ListenAddr, startTime, version)
-		adminSrv.Start()
-	}
-
 	// ── Graceful shutdown ─────────────────────────────────────────────────────
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -203,12 +169,6 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if adminSrv != nil {
-		if err := adminSrv.Stop(ctx); err != nil {
-			slog.Error("admin server forced shutdown", "error", err)
-		}
-	}
-
 	if err := srv.Shutdown(ctx); err != nil {
 		slog.Error("forced shutdown", "error", err)
 		os.Exit(1)
@@ -218,8 +178,7 @@ func main() {
 }
 
 // buildGateway constructs the Gateway and its associated health Monitor from
-// the given Config. The picker is seeded to a no-op state; the caller
-// replaces it via gw.UpdatePicker once the Registry is ready.
+// the given Config.
 func buildGateway(cfg config.Config) (*proxy.Gateway, *health.Monitor, error) {
 	backends, err := strategy.NewBackends(cfg.Backends)
 	if err != nil {
