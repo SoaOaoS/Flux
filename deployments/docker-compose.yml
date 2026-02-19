@@ -1,0 +1,55 @@
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      args:
+        VERSION: "${VERSION:-dev}"
+        COMMIT: "${COMMIT:-unknown}"
+        BUILD_DATE: "${BUILD_DATE:-unknown}"
+    ports:
+      - "8080:8080"
+      - "9091:9091"
+    volumes:
+      - ../configs/gateway.yaml:/etc/golb/gateway.yaml:ro
+    depends_on:
+      backend1:
+        condition: service_healthy
+      backend2:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/bin/healthcheck", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 128M
+
+  backend1:
+    image: hashicorp/http-echo:latest
+    command: ["-listen=:8081", "-text=hello from backend-1"]
+    ports:
+      - "8081:8081"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/"]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+
+  backend2:
+    image: hashicorp/http-echo:latest
+    command: ["-listen=:8082", "-text=hello from backend-2"]
+    ports:
+      - "8082:8082"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/"]
+      interval: 5s
+      timeout: 2s
+      retries: 3

@@ -1,0 +1,19 @@
+# minimal.yaml — the simplest possible GOLB configuration.
+# Forwards all traffic from :8080 to a single backend. No auth, no rate
+# limiting, active health checks disabled.
+
+listen_addr: ":8080"
+strategy: "round_robin"
+
+backends:
+  - url: "http://localhost:3000"
+    weight: 1
+
+health_check:
+  enabled: false
+
+rate_limit:
+  enabled: false
+
+auth:
+  enabled: false

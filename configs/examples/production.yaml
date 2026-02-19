@@ -1,0 +1,40 @@
+# production.yaml — hardened, multi-backend, fully-featured configuration.
+#
+# This example models a typical production deployment with:
+#   • Three backends with different capacities (expressed via weight)
+#   • Least-connections scheduling for long-lived connections (e.g. streaming)
+#   • Active health checks every 10 s
+#   • Per-IP rate limiting to protect backends from abuse
+#   • JWT authentication for every path except /healthz and /metrics
+
+listen_addr: ":8080"
+strategy: "least_connections"
+
+backends:
+  - url: "http://app-1.internal:8080"
+    weight: 2   # high-capacity node
+  - url: "http://app-2.internal:8080"
+    weight: 2   # high-capacity node
+  - url: "http://app-3.internal:8080"
+    weight: 1   # smaller node — receives half as many connections
+
+health_check:
+  enabled:  true
+  interval: "10s"
+  timeout:  "2s"
+  path:     "/healthz"
+
+rate_limit:
+  enabled: true
+  rps:     200    # 200 requests/s sustained per client IP
+  burst:   500    # brief spike allowed up to 500 req/s
+
+auth:
+  enabled: true
+  # WARNING: load the secret from an environment variable or a secrets manager
+  # in real deployments. Never commit real secrets to version control.
+  secret: "${JWT_SECRET}"
+  exclude:
+    - "/healthz"
+    - "/metrics"
+    - "/favicon.ico"

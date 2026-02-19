@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# GOLB — gateway.yaml
+# All values below are hot-reloadable: save the file while the gateway is
+# running and changes take effect without restarting the binary.
+# ─────────────────────────────────────────────────────────────────────────────
+
+listen_addr: ":8080"
+
+# Load-balancing algorithm.
+# Options: round_robin | weighted_round_robin | least_connections
+strategy: round_robin
+
+backends:
+  - url: "http://localhost:8081"
+    weight: 1
+  - url: "http://localhost:8082"
+    weight: 2   # receives twice as many requests under weighted_round_robin
+
+# ── Active health checks ──────────────────────────────────────────────────────
+health_check:
+  enabled:  true
+  interval: "10s"   # how often to probe each backend
+  timeout:  "2s"    # per-probe HTTP timeout
+  path:     "/healthz"
+
+# ── Rate limiting (per client IP) ────────────────────────────────────────────
+rate_limit:
+  enabled: false
+  rps:     100    # sustained requests per second
+  burst:   200    # maximum instantaneous burst
+
+# ── JWT authentication ────────────────────────────────────────────────────────
+# Algorithm: HMAC-SHA256 (HS256).  Keep the secret in an env var or secrets
+# manager in production — never commit real secrets to source control.
+auth:
+  enabled: false
+  secret:  "change-me-in-production"
+  exclude:          # paths that bypass authentication
+    - "/healthz"
+    - "/metrics"

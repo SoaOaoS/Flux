@@ -1,0 +1,49 @@
+# rate-limited.yaml — per-IP rate limiting configuration example.
+#
+# The rate limiter uses a token-bucket algorithm:
+#   • Each client IP gets its own independent bucket.
+#   • The bucket refills at `rps` tokens per second.
+#   • Requests are allowed instantly as long as tokens are available.
+#   • When the bucket is empty, the request is rejected with HTTP 429.
+#   • `burst` sets the maximum bucket capacity (handles bursty clients).
+#
+# Tuning guidelines:
+#   • Public APIs:    rps=10,   burst=30
+#   • Internal APIs:  rps=500,  burst=1000
+#   • CDN origin:     rps=1000, burst=5000
+
+listen_addr: ":8080"
+strategy: "round_robin"
+
+backends:
+  - url: "http://api-server:8080"
+    weight: 1
+
+health_check:
+  enabled:  true
+  interval: "10s"
+  timeout:  "2s"
+  path:     "/healthz"
+
+rate_limit:
+  enabled: true
+
+  # Sustained request rate allowed per client IP (requests per second).
+  rps: 50
+
+  # Maximum burst size — how many requests can arrive instantaneously before
+  # throttling kicks in.  Should be ≥ rps to absorb normal request variance.
+  burst: 100
+
+auth:
+  enabled: false
+
+# ── Behaviour under load ─────────────────────────────────────────────────────
+# With rps=50, burst=100:
+#   • A client making 100 rapid requests will be served immediately (burst pool).
+#   • Subsequent requests are held to 50/s (one token refills every 20 ms).
+#   • A request arriving when the bucket is empty receives HTTP 429 immediately
+#     (no queuing — the client is expected to retry with back-off).
+#
+# Memory: each unique client IP occupies ~200 bytes.
+# Stale entries (no traffic for >10 min) are purged automatically.

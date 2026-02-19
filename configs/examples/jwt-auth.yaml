@@ -1,0 +1,53 @@
+# jwt-auth.yaml — JWT authentication configuration example.
+#
+# Demonstrates:
+#   • Enabling HS256 Bearer-token authentication
+#   • Excluding specific paths (health checks, public assets) from auth
+#   • Combining auth with round-robin load balancing
+
+listen_addr: ":8080"
+strategy: "round_robin"
+
+backends:
+  - url: "http://api-server-1:8080"
+    weight: 1
+  - url: "http://api-server-2:8080"
+    weight: 1
+
+health_check:
+  enabled:  true
+  interval: "15s"
+  timeout:  "3s"
+  path:     "/healthz"
+
+rate_limit:
+  enabled: false
+
+auth:
+  enabled: true
+
+  # The HMAC-SHA256 signing secret.  Must match the secret used when issuing
+  # tokens.  Minimum recommended length: 32 bytes (256 bits).
+  #
+  # In production inject via environment variable:
+  #   secret: "${JWT_SECRET}"
+  secret: "replace-with-a-strong-256-bit-secret"
+
+  # Paths that bypass authentication entirely.
+  # Clients hitting these endpoints do NOT need to send an Authorization header.
+  exclude:
+    - "/healthz"      # gateway liveness probe
+    - "/metrics"      # Prometheus scrape endpoint on the backend
+    - "/public"       # publicly accessible content
+    - "/robots.txt"
+    - "/favicon.ico"
+
+# ── Token format ─────────────────────────────────────────────────────────────
+# Expected Authorization header:
+#   Authorization: Bearer <signed-HS256-JWT>
+#
+# Minimum required claims: none (only signature validity is checked).
+# Recommended claims to include in tokens:
+#   "sub"  — subject / user identifier
+#   "exp"  — expiry (Unix timestamp)
+#   "iat"  — issued-at  (Unix timestamp)
