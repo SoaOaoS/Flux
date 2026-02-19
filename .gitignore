@@ -1,0 +1,91 @@
+# ─── Build output ─────────────────────────────────────────────────────────────
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# ─── Go toolchain ─────────────────────────────────────────────────────────────
+# Test cache and coverage
+*.test
+*.out
+coverage.html
+coverage.txt
+/vendor/
+
+# Go workspace (go work is project-local, don't commit)
+go.work
+go.work.sum
+
+# ─── Config & secrets ─────────────────────────────────────────────────────────
+# Never commit real configs that may contain secrets (JWT secret, etc.)
+# Example configs in configs/examples/ are committed intentionally.
+configs/gateway.yaml
+configs/gateway.local.yaml
+configs/*.local.yaml
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+.docker/
+
+# ─── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ─── Editors & IDEs ───────────────────────────────────────────────────────────
+# VS Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# JetBrains (GoLand, IntelliJ)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim / Neovim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Zed
+.zed/
+
+# ─── Profiling & debug ────────────────────────────────────────────────────────
+cpu.prof
+mem.prof
+*.prof
+__debug_bin*
+
+# ─── Temp & misc ──────────────────────────────────────────────────────────────
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig
+.roadmap
