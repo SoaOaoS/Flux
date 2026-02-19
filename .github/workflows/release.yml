@@ -1,9 +1,8 @@
 name: Release
 
 # ─── Triggers ────────────────────────────────────────────────────────────────
-#  • push / merge to main
-#      commit message starts with "beta"  →  pre-release  (v1.2.3-beta.N)
-#      anything else                      →  production   (v1.2.3)
+#  • push to develop  →  pre-release  (v1.2.3-beta.N)
+#  • push to main     →  production   (v1.2.3)
 #
 # Version bump is determined by the highest-power commit since the last
 # production tag:
@@ -15,6 +14,7 @@ on:
   push:
     branches:
       - main
+      - develop
 
 permissions:
   contents: write
@@ -45,13 +45,10 @@ jobs:
           go test -race ./internal/...
 
       # ── 4. Resolve context (production vs beta) ────────────────────────────
-      # A beta release is triggered when the HEAD commit message starts with "beta".
       - name: Resolve release context
         id: ctx
         run: |
-          MSG=$(git log -1 --pretty=format:"%s")
-          echo "HEAD commit: $MSG"
-          if [[ "$MSG" == beta* ]]; then
+          if [[ "${{ github.ref_name }}" == "develop" ]]; then
             echo "prerelease=true"  >> "$GITHUB_OUTPUT"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
