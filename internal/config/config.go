@@ -57,12 +57,6 @@ type AuthCfg struct {
 	Exclude []string `mapstructure:"exclude"` // exact paths that bypass auth
 }
 
-// AdminCfg controls the management dashboard HTTP server.
-type AdminCfg struct {
-	Enabled    bool   `mapstructure:"enabled"`
-	ListenAddr string `mapstructure:"listen_addr"`
-}
-
 // Config is the top-level gateway configuration.
 type Config struct {
 	ListenAddr  string         `mapstructure:"listen_addr"`
@@ -71,7 +65,6 @@ type Config struct {
 	HealthCheck HealthCheckCfg `mapstructure:"health_check"`
 	RateLimit   RateLimitCfg   `mapstructure:"rate_limit"`
 	Auth        AuthCfg        `mapstructure:"auth"`
-	Admin       AdminCfg       `mapstructure:"admin"`
 }
 
 // Default returns a sensible single-backend config for development / Phase 1.
@@ -139,8 +132,6 @@ func newViper(path string) *viper.Viper {
 	v.SetDefault("rate_limit.rps", 100.0)
 	v.SetDefault("rate_limit.burst", 200)
 	v.SetDefault("auth.enabled", false)
-	v.SetDefault("admin.enabled", true)
-	v.SetDefault("admin.listen_addr", ":9091")
 
 	return v
 }

@@ -1,0 +1,210 @@
+name: Release
+
+# ─── Triggers ────────────────────────────────────────────────────────────────
+#  • push / merge to main
+#      commit message starts with "beta"  →  pre-release  (v1.2.3-beta.N)
+#      anything else                      →  production   (v1.2.3)
+#
+# Version bump is determined by the highest-power commit since the last
+# production tag:
+#   BREAKING CHANGE | !: | word "breaking"  →  major  (x.0.0)
+#   feat:                                   →  minor  (0.x.0)
+#   fix: / anything else / nothing          →  patch  (0.0.x)
+# ─────────────────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout with full history ──────────────────────────────────────
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # needed for git log & git tag across history
+
+      # ── 2. Go toolchain ────────────────────────────────────────────────────
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # ── 3. Quality gate ────────────────────────────────────────────────────
+      - name: Vet & unit tests
+        run: |
+          go vet ./...
+          go test -race ./internal/...
+
+      # ── 4. Resolve context (production vs beta) ────────────────────────────
+      # A beta release is triggered when the HEAD commit message starts with "beta".
+      - name: Resolve release context
+        id: ctx
+        run: |
+          MSG=$(git log -1 --pretty=format:"%s")
+          echo "HEAD commit: $MSG"
+          if [[ "$MSG" == beta* ]]; then
+            echo "prerelease=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── 5. Find last production tag (vX.Y.Z, no pre-release suffix) ────────
+      - name: Resolve last production tag
+        id: last_tag
+        run: |
+          TAG=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' \
+                  --sort=-version:refname \
+                | grep -vE -- '-' \
+                | head -1)
+          echo "tag=${TAG:-v0.0.0}" >> "$GITHUB_OUTPUT"
+          echo "Last production tag: ${TAG:-v0.0.0}"
+
+      # ── 6. Determine version bump from commits ─────────────────────────────
+      - name: Determine version bump
+        id: bump
+        run: |
+          LAST="${{ steps.last_tag.outputs.tag }}"
+
+          # Gather all commit subjects + bodies since the last production tag.
+          # If no real tag exists yet, scan the entire history.
+          if [[ "$LAST" == "v0.0.0" ]]; then
+            COMMITS=$(git log --pretty=format:"%s%n%b")
+          else
+            COMMITS=$(git log "${LAST}..HEAD" --pretty=format:"%s%n%b")
+          fi
+
+          echo "=== commits since ${LAST} ==="
+          echo "$COMMITS"
+          echo "=============================="
+
+          # Priority: major > minor > patch
+          if echo "$COMMITS" | grep -qiE '(BREAKING[[:space:]]CHANGE|!:|\bbreaking\b)'; then
+            echo "bump=major" >> "$GITHUB_OUTPUT"
+            echo "Bump: MAJOR"
+          elif echo "$COMMITS" | grep -qiE '^feat(\([^)]*\))?[!:]'; then
+            echo "bump=minor" >> "$GITHUB_OUTPUT"
+            echo "Bump: MINOR"
+          else
+            echo "bump=patch" >> "$GITHUB_OUTPUT"
+            echo "Bump: PATCH (default)"
+          fi
+
+      # ── 7. Calculate the next version string ───────────────────────────────
+      - name: Calculate next version
+        id: next_ver
+        run: |
+          LAST="${{ steps.last_tag.outputs.tag }}"
+          BUMP="${{ steps.bump.outputs.bump }}"
+          IS_BETA="${{ steps.ctx.outputs.prerelease }}"
+
+          # Parse vMAJOR.MINOR.PATCH (ignore any pre-release suffix)
+          V="${LAST#v}"
+          MAJOR="${V%%.*}"; REST="${V#*.}"
+          MINOR="${REST%%.*}"; PATCH="${REST##*.}"
+          # strip any pre-release suffix from PATCH (e.g. "3-beta.1" → "3")
+          PATCH="${PATCH%%-*}"
+
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR+1)); PATCH=0            ;;
+            patch) PATCH=$((PATCH+1))                     ;;
+          esac
+
+          BASE="v${MAJOR}.${MINOR}.${PATCH}"
+
+          if [[ "$IS_BETA" == "true" ]]; then
+            # Find the highest existing beta number for this base version and
+            # increment it so we never reuse the same pre-release tag.
+            LAST_N=$(git tag --list "${BASE}-beta.*" \
+                       --sort=version:refname \
+                     | grep -oE '[0-9]+$' \
+                     | tail -1)
+            N=$(( ${LAST_N:-0} + 1 ))
+            VERSION="${BASE}-beta.${N}"
+          else
+            VERSION="$BASE"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Next version: $VERSION"
+
+      # ── 8. Cross-platform build ────────────────────────────────────────────
+      - name: Build binaries
+        run: |
+          VERSION="${{ steps.next_ver.outputs.version }}"
+          COMMIT=$(git rev-parse --short HEAD)
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          LDFLAGS="-s -w \
+            -X main.version=${VERSION} \
+            -X main.commit=${COMMIT} \
+            -X main.buildDate=${BUILD_DATE}"
+
+          mkdir -p dist
+
+          build() {
+            local os=$1 arch=$2 ext=${3:-}
+            local out="dist/gateway_${os}_${arch}${ext}"
+            echo "  → $out"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -trimpath -ldflags="$LDFLAGS" \
+              -o "$out" ./cmd/gateway
+          }
+
+          build linux   amd64
+          build linux   arm64
+          build darwin  amd64
+          build darwin  arm64
+          build windows amd64 .exe
+
+          # Produce a SHA-256 checksum file alongside the binaries
+          cd dist
+          sha256sum ./* > checksums.txt
+          echo "--- checksums ---"
+          cat checksums.txt
+
+      # ── 9. Push the version tag ────────────────────────────────────────────
+      - name: Push version tag
+        run: |
+          VERSION="${{ steps.next_ver.outputs.version }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$VERSION"
+          git push origin "$VERSION"
+
+      # ── 10. Create GitHub Release with artifacts ───────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name:              ${{ steps.next_ver.outputs.version }}
+          name:                  ${{ steps.next_ver.outputs.version }}
+          prerelease:            ${{ steps.ctx.outputs.prerelease }}
+          generate_release_notes: true
+          files: |
+            dist/*
+
+      # ── 11. Job summary ────────────────────────────────────────────────────
+      - name: Write job summary
+        run: |
+          VERSION="${{ steps.next_ver.outputs.version }}"
+          BUMP="${{ steps.bump.outputs.bump }}"
+          IS_BETA="${{ steps.ctx.outputs.prerelease }}"
+          TYPE="Production"
+          [[ "$IS_BETA" == "true" ]] && TYPE="Beta (pre-release)"
+          {
+            echo "## Released \`${VERSION}\`"
+            echo ""
+            echo "| Field      | Value       |"
+            echo "|------------|-------------|"
+            echo "| Type       | ${TYPE}     |"
+            echo "| Bump       | ${BUMP}     |"
+            echo "| Tag        | \`${VERSION}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
