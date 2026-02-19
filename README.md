@@ -1,6 +1,8 @@
 # Flux - Go API Gateway & Load Balancer
 
-![Flux Logo](docs/logo.png)
+<p align="center">
+  <img src="docs/logo.png" alt="Flux Logo" width="200">
+</p>
 
 ![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
