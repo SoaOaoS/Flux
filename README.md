@@ -174,12 +174,6 @@ auth:
   exclude:             # paths that bypass auth entirely
     - "/healthz"
     - "/metrics"
-
-# Admin REST API server.
-# Default: enabled on :9091
-admin:
-  enabled:     true
-  listen_addr: ":9091"
 ```
 
 ### Strategy guide
